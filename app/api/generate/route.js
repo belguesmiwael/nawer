@@ -34,40 +34,23 @@ export async function POST(request) {
 
     await incrementMonthlyGenerations(userId)
 
-    const stream = await openai.chat.completions.create({
+    const completion = await openai.chat.completions.create({
       model:       'gpt-4o-mini',
       max_tokens:  6000,
       temperature: 0.7,
-      stream:      true,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user',   content: userPrompt   },
       ],
     })
 
-    const readableStream = new ReadableStream({
-      async start(controller) {
-        const enc = new TextEncoder()
-        try {
-          for await (const chunk of stream) {
-            const delta = chunk.choices[0]?.delta?.content
-            if (delta) controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'delta', text: delta })}\n\n`))
-            if (chunk.choices[0]?.finish_reason === 'stop')
-              controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'done', userId, remaining: limitCheck.remaining - 1 })}\n\n`))
-          }
-        } catch {
-          controller.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'error', message: 'Erreur de generation.' })}\n\n`))
-        } finally { controller.close() }
-      },
-    })
+    const text = completion.choices[0]?.message?.content || ''
 
-    return new Response(readableStream, {
-      headers: {
-        'Content-Type':      'text/event-stream',
-        'Cache-Control':     'no-cache',
-        'Connection':        'keep-alive',
-        'X-Accel-Buffering': 'no',
-      },
+    return NextResponse.json({ 
+      type: 'done', 
+      text, 
+      userId, 
+      remaining: limitCheck.remaining - 1 
     })
   } catch (error) {
     console.error('Generate API error:', error.message)
